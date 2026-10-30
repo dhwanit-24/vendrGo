@@ -54,8 +54,6 @@
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>
-	<key>NSLocationWhenInUseUsageDescription</key>
-    <string>Vendrgo uses your location to show nearby food stalls and update your stall location.</string>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
@@ -67,6 +65,25 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Vendrgo uses your location to show nearby food stalls and update your stall location.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vendrgo needs access to your photos so you can choose a stall image and a menu image.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Vendrgo needs camera access so you can take a photo for your stall or menu image.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.vendrgo.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vendrgo</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

@@ -1,19 +1,91 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config/supabase_config.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_tokens.dart';
 import 'features/admin/admin_home_screen.dart';
 import 'features/auth/auth_screens.dart';
 import 'features/customer/customer_home_screen.dart';
+import 'features/onboarding/onboarding_screen.dart';
 import 'features/vendor/vendor_home_screen.dart';
 import 'features/vendor/vendor_setup_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  _installErrorSafetyNet();
+
   runApp(const VendrgoApp());
+}
+
+/// Last line of defence: a stray error must never show the red error screen.
+/// Errors are still written to the console for debugging.
+void _installErrorSafetyNet() {
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('VENDRGO UI ERROR: ${details.exceptionAsString()}');
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('VENDRGO UNHANDLED ERROR: $error');
+    debugPrint('$stack');
+    return true;
+  };
+
+  ErrorWidget.builder = (details) => const FriendlyErrorWidget();
+}
+
+/// Shown in place of any widget that fails to build.
+class FriendlyErrorWidget extends StatelessWidget {
+  const FriendlyErrorWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Material(
+        color: VendrgoColors.background,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: const BoxDecoration(
+                    color: VendrgoColors.peach,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.sentiment_dissatisfied_rounded,
+                    size: 36,
+                    color: VendrgoColors.primaryDark,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Something went wrong',
+                  textAlign: TextAlign.center,
+                  style: VendrgoText.heading,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Please go back and try again.',
+                  textAlign: TextAlign.center,
+                  style: VendrgoText.bodySecondary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ============================================================
@@ -30,6 +102,7 @@ class VendrgoApp extends StatefulWidget {
 class _VendrgoAppState extends State<VendrgoApp> {
   Object? startupError;
   bool initialized = false;
+  bool showOnboarding = false;
 
   @override
   void initState() {
@@ -38,7 +111,7 @@ class _VendrgoAppState extends State<VendrgoApp> {
   }
 
   Future<void> _initialize() async {
-    final splashDelay = Future<void>.delayed(const Duration(seconds: 2));
+    final splashDelay = Future<void>.delayed(const Duration(milliseconds: 900));
 
     debugPrint('VENDRGO: Flutter started.');
 
@@ -57,6 +130,10 @@ class _VendrgoAppState extends State<VendrgoApp> {
       ]);
 
       debugPrint('VENDRGO: Supabase initialized successfully.');
+
+      if (Supabase.instance.client.auth.currentSession == null) {
+        showOnboarding = !await OnboardingScreen.hasBeenSeen();
+      }
     } catch (error, stackTrace) {
       debugPrint('VENDRGO STARTUP ERROR: $error');
       debugPrint('$stackTrace');
@@ -73,6 +150,15 @@ class _VendrgoAppState extends State<VendrgoApp> {
     }
   }
 
+  void _retry() {
+    setState(() {
+      initialized = false;
+      startupError = null;
+    });
+
+    _initialize();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -81,25 +167,72 @@ class _VendrgoAppState extends State<VendrgoApp> {
       theme: VendrgoTheme.light(),
       home: !initialized
           ? const SplashScreen()
-          : startupError == null
-          ? const AuthRouter()
-          : StartupErrorScreen(error: startupError.toString()),
+          : startupError != null
+          ? StartupErrorScreen(error: startupError.toString(), onRetry: _retry)
+          : showOnboarding
+          ? OnboardingScreen(
+              onDone: () => setState(() => showOnboarding = false),
+            )
+          : const AuthRouter(),
     );
   }
 }
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..forward();
+
+  late final Animation<double> _fade = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOut,
+  );
+
+  late final Animation<double> _scale = Tween<double>(
+    begin: 0.92,
+    end: 1,
+  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFFFFF8EA),
+    return Scaffold(
+      backgroundColor: VendrgoColors.splash,
       body: Center(
-        child: Image(
-          image: AssetImage('assets/vendrgo_logo.png'),
-          width: 310,
-          semanticLabel: 'VendrGo',
+        child: FadeTransition(
+          opacity: _fade,
+          child: ScaleTransition(
+            scale: _scale,
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image(
+                  image: AssetImage('assets/vendrgo_logo.png'),
+                  width: 280,
+                  semanticLabel: 'VendrGo',
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Find what’s open near you',
+                  style: VendrgoText.bodySecondary,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -130,19 +263,18 @@ class _AuthRouterState extends State<AuthRouter> {
   void initState() {
     super.initState();
 
-    authSubscription =
-        Supabase.instance.client.auth.onAuthStateChange.listen(
-              (state) {
-            _handleAuthState(state);
-          },
-          onError: (_, _) {
-            if (!mounted) return;
+    authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      (state) {
+        _handleAuthState(state);
+      },
+      onError: (_, _) {
+        if (!mounted) return;
 
-            setState(() {
-              loading = false;
-            });
-          },
-        );
+        setState(() {
+          loading = false;
+        });
+      },
+    );
 
     _loadCurrentSession();
   }
@@ -193,9 +325,7 @@ class _AuthRouterState extends State<AuthRouter> {
   }
 
   Future<void> _handleAuthState(AuthState state) async {
-    debugPrint(
-      'VENDRGO AUTH EVENT: ${state.event}',
-    );
+    debugPrint('VENDRGO AUTH EVENT: ${state.event}');
 
     if (state.event == AuthChangeEvent.passwordRecovery) {
       if (!mounted) return;
@@ -240,7 +370,17 @@ class _AuthRouterState extends State<AuthRouter> {
     }
   }
 
-  Future<void> _resolveRole() async {
+  Future<void>? _resolvingRole;
+
+  // Sign-in triggers both the auth listener and the login screen callback.
+  // Share one in-flight lookup so the profile is fetched only once.
+  Future<void> _resolveRole() {
+    return _resolvingRole ??= _loadRole().whenComplete(() {
+      _resolvingRole = null;
+    });
+  }
+
+  Future<void> _loadRole() async {
     final client = Supabase.instance.client;
     final user = client.auth.currentUser;
 
@@ -255,9 +395,7 @@ class _AuthRouterState extends State<AuthRouter> {
       return;
     }
 
-    debugPrint(
-      'VENDRGO: Loading profile for ${user.id}',
-    );
+    debugPrint('VENDRGO: Loading profile for ${user.id}');
 
     final currentProfile = await client
         .from('profiles')
@@ -266,9 +404,7 @@ class _AuthRouterState extends State<AuthRouter> {
         .maybeSingle();
 
     if (currentProfile == null) {
-      debugPrint(
-        'VENDRGO: No profile found for current user.',
-      );
+      debugPrint('VENDRGO: No profile found for current user.');
 
       if (!mounted) return;
 
@@ -298,9 +434,7 @@ class _AuthRouterState extends State<AuthRouter> {
       passwordRecovery = false;
     });
 
-    debugPrint(
-      'VENDRGO: Role resolved = ${currentProfile['role']}',
-    );
+    debugPrint('VENDRGO: Role resolved = ${currentProfile['role']}');
   }
 
   Future<void> _refreshRole() async {
@@ -326,8 +460,13 @@ class _AuthRouterState extends State<AuthRouter> {
             );
           },
           onLoginSuccess: () async {
-            Navigator.of(context).pop();
+            // Resolve the role first, then close the login screen, so the
+            // landing page never shows between login and the home screen.
             await _refreshRole();
+
+            if (!mounted) return;
+
+            Navigator.of(context).pop();
           },
         ),
       ),
@@ -364,11 +503,7 @@ class _AuthRouterState extends State<AuthRouter> {
 
   Widget _buildRoot() {
     if (loading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (passwordRecovery) {
@@ -386,10 +521,7 @@ class _AuthRouterState extends State<AuthRouter> {
     }
 
     if (profile == null) {
-      return AuthLandingScreen(
-        onLogin: _openLogin,
-        onSignup: _openSignup,
-      );
+      return AuthLandingScreen(onLogin: _openLogin, onSignup: _openSignup);
     }
 
     if (profile!['is_active'] != true) {
@@ -429,58 +561,75 @@ class _AuthRouterState extends State<AuthRouter> {
 
 class StartupErrorScreen extends StatelessWidget {
   final String error;
+  final VoidCallback? onRetry;
 
-  const StartupErrorScreen({
-    super.key,
-    required this.error,
-  });
+  const StartupErrorScreen({super.key, required this.error, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFBF8),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                  const Icon(
-                    Icons.error_outline_rounded,
-                    size: 64,
-                    color: Colors.red,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                      color: VendrgoColors.errorSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 44,
+                      color: VendrgoColors.error,
+                    ),
                   ),
                   const SizedBox(height: 20),
                   const Text(
                     'Vendrgo could not start',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: VendrgoText.title,
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   const Text(
-                    'Startup failed before the application loaded.',
+                    'Check your internet connection and try again.',
+                    style: VendrgoText.bodySecondary,
                     textAlign: TextAlign.center,
                   ),
+                  if (onRetry != null) ...[
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                    ),
+                  ],
                   const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: SelectableText(
-                      error,
-                      style: const TextStyle(
-                        fontSize: 12,
+                  ExpansionTile(
+                    title: const Text('Details', style: VendrgoText.caption),
+                    shape: const Border(),
+                    collapsedShape: const Border(),
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: VendrgoColors.surfaceMuted,
+                          borderRadius: VendrgoRadius.mdAll,
+                        ),
+                        child: SelectableText(
+                          error,
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -505,8 +654,8 @@ class _DisabledAccountScreen extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF1EF),
-              borderRadius: BorderRadius.circular(20),
+              color: VendrgoColors.errorSoft,
+              borderRadius: VendrgoRadius.xlAll,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -514,15 +663,12 @@ class _DisabledAccountScreen extends StatelessWidget {
                 const Icon(
                   Icons.block_rounded,
                   size: 50,
-                  color: Colors.red,
+                  color: VendrgoColors.error,
                 ),
                 const SizedBox(height: 14),
                 const Text(
                   'Account unavailable',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -558,9 +704,7 @@ class _UnknownRoleScreen extends StatelessWidget {
       body: Center(
         child: Text(
           'Unknown account role.',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
     );

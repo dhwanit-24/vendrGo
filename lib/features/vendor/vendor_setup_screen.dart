@@ -6,7 +6,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../shared/widgets/app_ui.dart';
+import '../../services/media_service.dart';
+import '../../core/theme/app_tokens.dart';
+import '../../shared/widgets/feedback_widgets.dart';
+import '../../shared/widgets/form_widgets.dart';
 import 'vendor_home_screen.dart';
 
 class VendorSetupScreen extends StatefulWidget {
@@ -56,66 +59,55 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
   }
 
   void _loadSignupData() {
-    final metadata =
-        client.auth.currentUser?.userMetadata ?? {};
+    final metadata = client.auth.currentUser?.userMetadata ?? {};
 
-    stallNameController.text =
-        metadata['stall_name'] as String? ?? '';
+    stallNameController.text = metadata['stall_name'] as String? ?? '';
 
-    descriptionController.text =
-        metadata['stall_description'] as String? ?? '';
+    descriptionController.text = metadata['stall_description'] as String? ?? '';
 
-    categoryController.text =
-        metadata['category_name'] as String? ?? '';
+    categoryController.text = metadata['category_name'] as String? ?? '';
 
-    addressController.text =
-        metadata['stall_address'] as String? ?? '';
+    addressController.text = metadata['stall_address'] as String? ?? '';
 
-    openingHoursController.text =
-        metadata['opening_hours'] as String? ?? '';
+    openingHoursController.text = metadata['opening_hours'] as String? ?? '';
 
     setState(() {
       loading = false;
     });
   }
-  
+
   Future<void> _selectOpeningHours() async {
-  final openingTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select opening time',
-  );
-
-  if (openingTime == null || !mounted) {
-    return;
-  }
-
-  final closingTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay(
-      hour: (openingTime.hour + 8) % 24,
-      minute: openingTime.minute,
-    ),
-    helpText: 'Select closing time',
-  );
-
-  if (closingTime == null || !mounted) {
-    return;
-  }
-
-  setState(() {
-    openingHoursController.text =
-        '${openingTime.format(context)} – ${closingTime.format(context)}';
-  });
-}
-
-  Future<void> _pickImage({
-    required bool stall,
-  }) async {
-    final picked = await imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
+    final openingTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: 'Select opening time',
     );
+
+    if (openingTime == null || !mounted) {
+      return;
+    }
+
+    final closingTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: (openingTime.hour + 8) % 24,
+        minute: openingTime.minute,
+      ),
+      helpText: 'Select closing time',
+    );
+
+    if (closingTime == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      openingHoursController.text =
+          '${openingTime.format(context)} – ${closingTime.format(context)}';
+    });
+  }
+
+  Future<void> _pickImage({required bool stall}) async {
+    final picked = await MediaService.pickCompressed(imagePicker);
 
     if (picked == null || !mounted) {
       return;
@@ -124,10 +116,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     final fileSize = await File(picked.path).length();
 
     if (fileSize > 5 * 1024 * 1024) {
-      _showMessage(
-        'Image must be smaller than 5 MB.',
-        error: true,
-      );
+      _showMessage('Image must be smaller than 5 MB.', error: true);
       return;
     }
 
@@ -147,13 +136,10 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     });
 
     try {
-      final serviceEnabled =
-      await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!serviceEnabled) {
-        throw Exception(
-          'Please enable location services on your device.',
-        );
+        throw Exception('Please enable location services on your device.');
       }
 
       var permission = await Geolocator.checkPermission();
@@ -163,15 +149,13 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
       }
 
       if (permission == LocationPermission.denied) {
-        throw Exception(
-          'Location permission was denied.',
-        );
+        throw Exception('Location permission was denied.');
       }
 
       if (permission == LocationPermission.deniedForever) {
         throw Exception(
           'Location permission is permanently denied. '
-              'Enable it from device settings.',
+          'Enable it from device settings.',
         );
       }
 
@@ -189,10 +173,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
       if (!mounted) return;
 
       setState(() {
-        errorMessage = error.toString().replaceFirst(
-          'Exception: ',
-          '',
-        );
+        errorMessage = error.toString().replaceFirst('Exception: ', '');
       });
     } finally {
       if (mounted) {
@@ -203,50 +184,15 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     }
   }
 
-  Future<String> _uploadImage(
-      XFile file,
-      String type,
-      ) async {
-    final user = client.auth.currentUser;
-
-    if (user == null) {
-      throw Exception('You are not signed in.');
-    }
-
-    final extension =
-    file.name.contains('.')
-        ? file.name.split('.').last.toLowerCase()
-        : 'jpg';
-
-    final contentType = switch (extension) {
-      'png' => 'image/png',
-      'webp' => 'image/webp',
-      _ => 'image/jpeg',
-    };
-
-    final path =
-        '${user.id}/${DateTime.now().millisecondsSinceEpoch}_$type.$extension';
-
-    await client.storage.from('vendrgo-media').upload(
-      path,
-      File(file.path),
-      fileOptions: FileOptions(
-        contentType: contentType,
-        upsert: false,
-      ),
-    );
-
-    return path;
+  Future<String> _uploadImage(XFile file, String type) {
+    return MediaService.upload(file, type);
   }
 
   Future<String> _getOrCreateCategory() async {
-    final categoryName =
-    categoryController.text.trim();
+    final categoryName = categoryController.text.trim();
 
     if (categoryName.isEmpty) {
-      throw Exception(
-        'Food category is required.',
-      );
+      throw Exception('Food category is required.');
     }
 
     final existing = await client
@@ -262,18 +208,16 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     final user = client.auth.currentUser;
 
     if (user == null) {
-      throw Exception(
-        'You are not signed in.',
-      );
+      throw Exception('You are not signed in.');
     }
 
     final created = await client
         .from('categories')
         .insert({
-      'name': categoryName,
-      'created_by': user.id,
-      'is_active': true,
-    })
+          'name': categoryName,
+          'created_by': user.id,
+          'is_active': true,
+        })
         .select('id')
         .single();
 
@@ -288,7 +232,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     if (latitude == null || longitude == null) {
       setState(() {
         errorMessage =
-        'Update your current location before submitting your stall.';
+            'Update your current location before submitting your stall.';
       });
       return;
     }
@@ -308,24 +252,17 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
     });
 
     try {
-      final categoryId =
-      await _getOrCreateCategory();
+      final categoryId = await _getOrCreateCategory();
 
       String? stallImagePath;
       String? menuImagePath;
 
       if (stallImage != null) {
-        stallImagePath = await _uploadImage(
-          stallImage!,
-          'stall',
-        );
+        stallImagePath = await _uploadImage(stallImage!, 'stall');
       }
 
       if (menuImage != null) {
-        menuImagePath = await _uploadImage(
-          menuImage!,
-          'menu',
-        );
+        menuImagePath = await _uploadImage(menuImage!, 'menu');
       }
 
       await client.from('stalls').insert({
@@ -336,15 +273,12 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
         'address': addressController.text.trim(),
         'latitude': latitude,
         'longitude': longitude,
-        'opening_hours': {
-          'all': openingHoursController.text.trim(),
-        },
+        'opening_hours': {'all': openingHoursController.text.trim()},
         'stall_image_path': stallImagePath,
         'menu_image_path': menuImagePath,
         'is_open': false,
         'approval_status': 'pending',
-        'location_updated_at':
-        DateTime.now().toUtc().toIso8601String(),
+        'location_updated_at': DateTime.now().toUtc().toIso8601String(),
       });
 
       if (!mounted) return;
@@ -360,36 +294,25 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
        * the stall normally.
        */
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const VendorHomeScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => const VendorHomeScreen()),
       );
     } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        errorMessage = error.toString().replaceFirst(
-          'Exception: ',
-          '',
-        );
+        errorMessage = error.toString().replaceFirst('Exception: ', '');
         saving = false;
       });
     }
   }
 
-  void _showMessage(
-      String message, {
-        bool error = false,
-      }) {
+  void _showMessage(String message, {bool error = false}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor:
-          error
-              ? VendrgoColors.error
-              : VendrgoColors.success,
+          backgroundColor: error ? VendrgoColors.error : VendrgoColors.success,
         ),
       );
   }
@@ -397,11 +320,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -417,30 +336,16 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
         child: Form(
           key: formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              20,
-              12,
-              20,
-              36,
-            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
             children: [
-              const Text(
-                'Set up your stall.',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+              const Text('Set up your stall.', style: VendrgoText.display),
 
               const SizedBox(height: 8),
 
               const Text(
                 'Add the information customers will see. '
-                    'Your stall will remain closed until an admin approves it.',
-                style: TextStyle(
-                  color: VendrgoColors.textSecondary,
-                  height: 1.45,
-                ),
+                'Your stall will remain closed until an admin approves it.',
+                style: VendrgoText.bodySecondary,
               ),
 
               const SizedBox(height: 22),
@@ -449,20 +354,21 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF1EF),
-                    borderRadius: BorderRadius.circular(15),
+                    color: VendrgoColors.errorSoft,
+                    borderRadius: VendrgoRadius.mdAll,
                   ),
                   child: Text(
                     errorMessage!,
-                    style: const TextStyle(
-                      color: VendrgoColors.error,
-                    ),
+                    style: const TextStyle(color: VendrgoColors.error),
                   ),
                 ),
                 const SizedBox(height: 16),
               ],
 
-              _Field(
+              const SectionHeader(title: 'Stall details'),
+              const SizedBox(height: 12),
+
+              AppFormField(
                 controller: stallNameController,
                 label: 'Stall name',
                 icon: Icons.storefront_outlined,
@@ -471,7 +377,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
 
               const SizedBox(height: 14),
 
-              _Field(
+              AppFormField(
                 controller: descriptionController,
                 label: 'Description',
                 icon: Icons.description_outlined,
@@ -481,7 +387,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
 
               const SizedBox(height: 14),
 
-              _Field(
+              AppFormField(
                 controller: categoryController,
                 label: 'Main food category',
                 icon: Icons.restaurant_menu_outlined,
@@ -500,7 +406,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
 
               const SizedBox(height: 14),
 
-              _Field(
+              AppFormField(
                 controller: addressController,
                 label: 'Address',
                 icon: Icons.location_on_outlined,
@@ -510,18 +416,21 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
 
               const SizedBox(height: 14),
 
-              _Field(
-    controller: openingHoursController,
-    label: 'Opening hours',
-    icon: Icons.schedule_outlined,
-    validator: _required('Opening hours'),
-    readOnly: true,
-    onTap: _selectOpeningHours,
-  ),  
+              AppFormField(
+                controller: openingHoursController,
+                label: 'Opening hours',
+                icon: Icons.schedule_outlined,
+                validator: _required('Opening hours'),
+                readOnly: true,
+                onTap: _selectOpeningHours,
+              ),
 
               const SizedBox(height: 22),
 
-              _ImageCard(
+              const SectionHeader(title: 'Photos'),
+              const SizedBox(height: 12),
+
+              ImagePickerCard(
                 title: 'Stall image',
                 file: stallImage,
                 icon: Icons.storefront_rounded,
@@ -530,7 +439,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
 
               const SizedBox(height: 12),
 
-              _ImageCard(
+              ImagePickerCard(
                 title: 'Menu image',
                 file: menuImage,
                 icon: Icons.restaurant_menu_rounded,
@@ -542,19 +451,16 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: VendrgoColors.mint,
-                  borderRadius: BorderRadius.circular(20),
+                  color: VendrgoColors.surface,
+                  borderRadius: VendrgoRadius.lgAll,
+                  boxShadow: VendrgoShadows.card,
                 ),
                 child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Current stall location',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: VendrgoText.heading,
                     ),
 
                     const SizedBox(height: 7),
@@ -563,7 +469,7 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
                       latitude == null
                           ? 'No location selected yet.'
                           : 'Latitude: ${latitude!.toStringAsFixed(6)}\n'
-                          'Longitude: ${longitude!.toStringAsFixed(6)}',
+                                'Longitude: ${longitude!.toStringAsFixed(6)}',
                       style: const TextStyle(
                         color: VendrgoColors.textSecondary,
                         height: 1.4,
@@ -575,13 +481,8 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed:
-                        loadingLocation
-                            ? null
-                            : _loadLocation,
-                        icon: const Icon(
-                          Icons.my_location_rounded,
-                        ),
+                        onPressed: loadingLocation ? null : _loadLocation,
+                        icon: const Icon(Icons.my_location_rounded),
                         label: Text(
                           loadingLocation
                               ? 'Getting location...'
@@ -600,21 +501,17 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed:
-                  saving ? null : _saveStall,
+                  onPressed: saving ? null : _saveStall,
                   child: saving
                       ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child:
-                    CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                      : const Text(
-                    'Submit for approval',
-                  ),
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text('Submit for approval'),
                 ),
               ),
             ],
@@ -625,114 +522,9 @@ class _VendorSetupScreenState extends State<VendorSetupScreen> {
   }
 }
 
-class _Field extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final IconData icon;
-  final int maxLines;
-  final String? Function(String?)? validator;
-  final bool readOnly;
-  final VoidCallback? onTap;
-
-  const _Field({
-    required this.controller,
-    required this.label,
-    required this.icon,
-    this.maxLines = 1,
-    this.validator,
-    this.readOnly = false,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
-      readOnly: readOnly,
-      onTap: onTap,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        suffixIcon: onTap == null
-            ? null
-            : const Icon(Icons.keyboard_arrow_down_rounded),
-      ),
-    );
-  }
-}
-
-class _ImageCard extends StatelessWidget {
-  final String title;
-  final XFile? file;
-  final IconData icon;
-  final VoidCallback onPick;
-
-  const _ImageCard({
-    required this.title,
-    required this.file,
-    required this.icon,
-    required this.onPick,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 190,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: VendrgoColors.border,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (file != null)
-            Image.file(
-              File(file!.path),
-              fit: BoxFit.cover,
-            )
-          else
-            Center(
-              child: Icon(
-                icon,
-                size: 50,
-                color: VendrgoColors.textSecondary,
-              ),
-            ),
-
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: ElevatedButton.icon(
-              onPressed: onPick,
-              icon: const Icon(
-                Icons.photo_library_outlined,
-              ),
-              label: Text(
-                file == null
-                    ? 'Choose $title'
-                    : 'Change $title',
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String? Function(String?) _required(
-    String field,
-    ) {
+String? Function(String?) _required(String field) {
   return (value) {
-    if (value == null ||
-        value.trim().isEmpty) {
+    if (value == null || value.trim().isEmpty) {
       return '$field is required.';
     }
 

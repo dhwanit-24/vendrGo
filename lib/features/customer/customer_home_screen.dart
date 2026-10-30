@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,19 +7,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../services/media_service.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../services/auth_services.dart';
-import '../../shared/widgets/app_ui.dart';
+import '../../shared/widgets/dialogs.dart';
+import '../../shared/widgets/feedback_widgets.dart';
+import '../../shared/widgets/network_image_with_fallback.dart';
+import '../../shared/widgets/stall_card.dart';
+import '../../shared/widgets/status_badge.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
 
   @override
-  State<CustomerHomeScreen> createState() =>
-      _CustomerHomeScreenState();
+  State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
 }
 
-class _CustomerHomeScreenState
-    extends State<CustomerHomeScreen> {
+class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   final client = Supabase.instance.client;
   final searchController = TextEditingController();
 
@@ -27,17 +32,20 @@ class _CustomerHomeScreenState
   bool loadingLocation = true;
   bool openOnly = false;
 
+  /// Search radius around the customer. Starts at 1 km, can be widened.
+  static const radiusOptions = [1, 2, 5, 10];
+  int radiusKm = 1;
+
   String selectedCategory = 'All';
 
   int selectedTab = 0;
 
   Map<String, String> categoryNames = {};
 
-  Stream<List<Map<String, dynamic>>> get stallStream =>
-      client
-          .from('stalls')
-          .stream(primaryKey: ['id'])
-          .eq('approval_status', 'approved');
+  Stream<List<Map<String, dynamic>>> get stallStream => client
+      .from('stalls')
+      .stream(primaryKey: ['id'])
+      .eq('approval_status', 'approved');
 
   @override
   void initState() {
@@ -65,9 +73,7 @@ class _CustomerHomeScreenState
 
       setState(() {
         categoryNames = {
-          for (final row in result)
-            row['id'] as String:
-            row['name'] as String,
+          for (final row in result) row['id'] as String: row['name'] as String,
         };
       });
     } catch (_) {
@@ -81,41 +87,28 @@ class _CustomerHomeScreenState
     });
 
     try {
-      final serviceEnabled =
-      await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!serviceEnabled) {
-        throw Exception(
-          'Location services are disabled.',
-        );
+        throw Exception('Location services are disabled.');
       }
 
-      var permission =
-      await Geolocator.checkPermission();
+      var permission = await Geolocator.checkPermission();
 
       if (permission == LocationPermission.denied) {
-        permission =
-        await Geolocator.requestPermission();
+        permission = await Geolocator.requestPermission();
       }
 
-      if (permission ==
-          LocationPermission.denied) {
-        throw Exception(
-          'Location permission denied.',
-        );
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission denied.');
       }
 
-      if (permission ==
-          LocationPermission.deniedForever) {
-        throw Exception(
-          'Location permission is permanently denied.',
-        );
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission is permanently denied.');
       }
 
-      final position =
-      await Geolocator.getCurrentPosition(
-        locationSettings:
-        const LocationSettings(
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
       );
@@ -135,17 +128,14 @@ class _CustomerHomeScreenState
     }
   }
 
-  double _distanceKm(
-      Map<String, dynamic> stall,
-      ) {
+  double _distanceKm(Map<String, dynamic> stall) {
     if (currentPosition == null ||
         stall['latitude'] == null ||
         stall['longitude'] == null) {
       return double.infinity;
     }
 
-    final meters =
-    Geolocator.distanceBetween(
+    final meters = Geolocator.distanceBetween(
       currentPosition!.latitude,
       currentPosition!.longitude,
       (stall['latitude'] as num).toDouble(),
@@ -155,53 +145,29 @@ class _CustomerHomeScreenState
     return meters / 1000;
   }
 
-  String _distanceLabel(
-      Map<String, dynamic> stall,
-      ) {
-    final distance = _distanceKm(stall);
-
-    if (distance == double.infinity) {
-      return 'Distance unavailable';
-    }
-
-    return '${distance.toStringAsFixed(1)} km';
-  }
-
-  List<Map<String, dynamic>> _filterStalls(
-      List<Map<String, dynamic>> stalls,
-      ) {
-    final search =
-    searchController.text.trim().toLowerCase();
+  List<Map<String, dynamic>> _filterStalls(List<Map<String, dynamic>> stalls) {
+    final search = searchController.text.trim().toLowerCase();
 
     return stalls.where((stall) {
-      if (_distanceKm(stall) > 1.0) {
+      if (_distanceKm(stall) > radiusKm) {
         return false;
       }
 
-      if (openOnly &&
-          stall['is_open'] != true) {
+      if (openOnly && stall['is_open'] != true) {
         return false;
       }
 
-      final stallCategory =
-      categoryNames[stall['category_id']];
+      final stallCategory = categoryNames[stall['category_id']];
 
-      if (selectedCategory != 'All' &&
-          stallCategory != selectedCategory) {
+      if (selectedCategory != 'All' && stallCategory != selectedCategory) {
         return false;
       }
 
-      final name =
-      (stall['name'] as String? ?? '')
-          .toLowerCase();
+      final name = (stall['name'] as String? ?? '').toLowerCase();
 
-      final description =
-      (stall['description'] as String? ?? '')
-          .toLowerCase();
+      final description = (stall['description'] as String? ?? '').toLowerCase();
 
-      final category =
-      (stallCategory ?? '')
-          .toLowerCase();
+      final category = (stallCategory ?? '').toLowerCase();
 
       if (search.isNotEmpty &&
           !name.contains(search) &&
@@ -215,63 +181,39 @@ class _CustomerHomeScreenState
   }
 
   Future<void> _showCategoryFilter() async {
-    final categories = [
-      'All',
-      ...categoryNames.values.toSet(),
-    ];
+    final categories = ['All', ...categoryNames.values.toSet()];
 
     if (!mounted) return;
 
-    final result =
-    await showModalBottomSheet<String>(
+    final result = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (_) {
+      builder: (sheetContext) {
         return ListView(
-          padding: const EdgeInsets.fromLTRB(
-            16,
-            8,
-            16,
-            24,
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(
-                8,
-                0,
-                8,
-                10,
-              ),
+              padding: EdgeInsets.fromLTRB(8, 0, 8, 10),
               child: Text(
                 'Filter by food category',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
               ),
             ),
-            ...categories.map(
-                  (category) {
-                return ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                    BorderRadius.circular(12),
-                  ),
-                  title: Text(category),
-                  trailing:
-                  selectedCategory == category
-                      ? const Icon(
-                    Icons.check_rounded,
-                    color:
-                    VendrgoColors.primary,
-                  )
-                      : null,
-                  onTap: () =>
-                      Navigator.of(context)
-                          .pop(category),
-                );
-              },
-            ),
+            ...categories.map((category) {
+              return ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                title: Text(category),
+                trailing: selectedCategory == category
+                    ? const Icon(
+                        Icons.check_rounded,
+                        color: VendrgoColors.primary,
+                      )
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(category),
+              );
+            }),
           ],
         );
       },
@@ -286,9 +228,7 @@ class _CustomerHomeScreenState
     });
   }
 
-  Future<bool> _isFavorite(
-      String stallId,
-      ) async {
+  Future<bool> _isFavorite(String stallId) async {
     final user = client.auth.currentUser;
 
     if (user == null) {
@@ -305,9 +245,7 @@ class _CustomerHomeScreenState
     return result != null;
   }
 
-  Future<void> _toggleFavorite(
-      String stallId,
-      ) async {
+  Future<void> _toggleFavorite(String stallId) async {
     final user = client.auth.currentUser;
 
     if (user == null) {
@@ -339,9 +277,7 @@ class _CustomerHomeScreenState
     }
   }
 
-  Future<void> _openDirections(
-      Map<String, dynamic> stall,
-      ) async {
+  Future<void> _openDirections(Map<String, dynamic> stall) async {
     final lat = stall['latitude'];
     final lng = stall['longitude'];
 
@@ -351,52 +287,118 @@ class _CustomerHomeScreenState
 
     final uri = Uri.parse(
       'https://www.google.com/maps/dir/?api=1'
-          '&destination=$lat,$lng',
+      '&destination=$lat,$lng',
     );
 
-    if (!await launchUrl(
-      uri,
-      mode: LaunchMode.externalApplication,
-    )) {
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Could not open Google Maps.',
-          ),
-          backgroundColor:
-          VendrgoColors.error,
+          content: Text('Could not open Google Maps.'),
+          backgroundColor: VendrgoColors.error,
         ),
       );
     }
   }
 
-  void _openStall(
-      Map<String, dynamic> stall,
-      ) {
+  void _openStall(Map<String, dynamic> stall) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => StallDetailsScreen(
           stall: stall,
-          categoryName:
-          categoryNames[stall['category_id']],
-          distanceKm:
-          _distanceKm(stall),
-          isFavorite:
-          _isFavorite(
-            stall['id'] as String,
-          ),
-          onToggleFavorite:
-              () => _toggleFavorite(
-            stall['id'] as String,
-          ),
-          onDirections:
-              () => _openDirections(stall),
+          categoryName: categoryNames[stall['category_id']],
+          distanceKm: _distanceKm(stall),
+          isFavorite: _isFavorite(stall['id'] as String),
+          onToggleFavorite: () => _toggleFavorite(stall['id'] as String),
+          onDirections: () => _openDirections(stall),
         ),
       ),
     );
+  }
+
+  // ============================================================
+  // UI
+  // ============================================================
+
+  bool showMap = false;
+
+  String? _imageUrl(Map<String, dynamic> stall) {
+    return MediaService.urlFor(stall['stall_image_path']);
+  }
+
+  String? _cardDistance(Map<String, dynamic> stall) {
+    final distance = _distanceKm(stall);
+
+    if (distance == double.infinity) {
+      return null;
+    }
+
+    if (distance < 1) {
+      return '${(distance * 1000).round()} m';
+    }
+
+    return '${distance.toStringAsFixed(1)} km';
+  }
+
+  String? _hoursOf(Map<String, dynamic> stall) {
+    final hours = stall['opening_hours'];
+
+    if (hours is Map) {
+      return hours['all'] as String?;
+    }
+
+    return null;
+  }
+
+  Future<void> _showRadiusPicker() async {
+    final result = await showModalBottomSheet<int>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(8, 0, 8, 10),
+                child: Text('Search distance', style: VendrgoText.title),
+              ),
+              for (final km in radiusOptions)
+                ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  leading: const Icon(Icons.radar_rounded),
+                  title: Text('Within $km km'),
+                  trailing: radiusKm == km
+                      ? const Icon(
+                          Icons.check_rounded,
+                          color: VendrgoColors.primary,
+                        )
+                      : null,
+                  onTap: () => Navigator.of(sheetContext).pop(km),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result == null || !mounted) return;
+
+    setState(() {
+      radiusKm = result;
+    });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      openOnly = false;
+      radiusKm = 1;
+      selectedCategory = 'All';
+      searchController.clear();
+    });
   }
 
   @override
@@ -406,79 +408,162 @@ class _CustomerHomeScreenState
         child: IndexedStack(
           index: selectedTab,
           children: [
-            _buildMapPage(),
+            _buildHomePage(),
             _buildFavoritesPage(),
             _buildProfilePage(),
           ],
         ),
       ),
-      bottomNavigationBar:
-      _buildBottomNavigation(),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedTab,
+        onDestinationSelected: (index) {
+          setState(() {
+            selectedTab = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore_rounded),
+            label: 'Explore',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.favorite_border_rounded),
+            selectedIcon: Icon(Icons.favorite_rounded),
+            label: 'Favorites',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline_rounded),
+            selectedIcon: Icon(Icons.person_rounded),
+            label: 'Profile',
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildBottomNavigation() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(
-        14,
-        0,
-        14,
-        14,
-      ),
-      padding: const EdgeInsets.symmetric(
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-        BorderRadius.circular(22),
-        border: Border.all(
-          color: VendrgoColors.border,
-        ),
-      ),
-      child: Row(
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _NavItem(
-              selected: selectedTab == 0,
-              icon: Icons.map_outlined,
-              selectedIcon: Icons.map_rounded,
-              label: 'Map',
-              onTap: () {
-                setState(() {
-                  selectedTab = 0;
-                });
-              },
+          Row(
+            children: [
+              const Icon(
+                Icons.location_on_rounded,
+                color: VendrgoColors.primary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Near you', style: VendrgoText.heading),
+                    Text(
+                      currentPosition == null
+                          ? (loadingLocation
+                                ? 'Finding your location...'
+                                : 'Location unavailable')
+                          : 'Stalls within $radiusKm km',
+                      style: VendrgoText.caption,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Refresh my location',
+                onPressed: loadingLocation ? null : _loadLocation,
+                icon: const Icon(Icons.my_location_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: searchController,
+            onChanged: (_) => setState(() {}),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search stalls, food...',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        searchController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
             ),
           ),
-          Expanded(
-            child: _NavItem(
-              selected: selectedTab == 1,
-              icon:
-              Icons.favorite_border_rounded,
-              selectedIcon:
-              Icons.favorite_rounded,
-              label: 'Favorites',
-              onTap: () {
-                setState(() {
-                  selectedTab = 1;
-                });
-              },
-            ),
-          ),
-          Expanded(
-            child: _NavItem(
-              selected: selectedTab == 2,
-              icon:
-              Icons.person_outline_rounded,
-              selectedIcon:
-              Icons.person_rounded,
-              label: 'Profile',
-              onTap: () {
-                setState(() {
-                  selectedTab = 2;
-                });
-              },
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                FilterChip(
+                  selected: openOnly,
+                  avatar: Icon(
+                    Icons.schedule_rounded,
+                    size: 18,
+                    color: openOnly
+                        ? VendrgoColors.primaryDark
+                        : VendrgoColors.textSecondary,
+                  ),
+                  label: const Text('Open now'),
+                  onSelected: (value) {
+                    setState(() {
+                      openOnly = value;
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  selected: selectedCategory != 'All',
+                  avatar: Icon(
+                    Icons.restaurant_menu_rounded,
+                    size: 18,
+                    color: selectedCategory != 'All'
+                        ? VendrgoColors.primaryDark
+                        : VendrgoColors.textSecondary,
+                  ),
+                  label: Text(
+                    selectedCategory == 'All' ? 'Cuisine' : selectedCategory,
+                  ),
+                  onSelected: (_) => _showCategoryFilter(),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  selected: radiusKm != 1,
+                  avatar: Icon(
+                    Icons.radar_rounded,
+                    size: 18,
+                    color: radiusKm != 1
+                        ? VendrgoColors.primaryDark
+                        : VendrgoColors.textSecondary,
+                  ),
+                  label: Text('Within $radiusKm km'),
+                  onSelected: (_) => _showRadiusPicker(),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  selected: showMap,
+                  avatar: Icon(
+                    showMap ? Icons.map_rounded : Icons.map_outlined,
+                    size: 18,
+                    color: showMap
+                        ? VendrgoColors.primaryDark
+                        : VendrgoColors.textSecondary,
+                  ),
+                  label: const Text('Map view'),
+                  onSelected: (value) {
+                    setState(() {
+                      showMap = value;
+                    });
+                  },
+                ),
+              ],
             ),
           ),
         ],
@@ -486,312 +571,227 @@ class _CustomerHomeScreenState
     );
   }
 
-  Widget _buildMapPage() {
-    return StreamBuilder<
-        List<Map<String, dynamic>>>(
+  Widget _buildHomePage() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: stallStream,
       builder: (context, snapshot) {
+        Widget content;
+
         if (snapshot.hasError) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Could not load nearby stalls.',
-                textAlign: TextAlign.center,
-              ),
-            ),
+          content = EmptyState(
+            icon: Icons.wifi_off_rounded,
+            title: 'Could not load nearby stalls',
+            message: 'Check your connection and try again.',
+            actionLabel: 'Retry',
+            onAction: () => setState(() {}),
           );
-        }
-
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(),
+        } else if (!snapshot.hasData ||
+            (loadingLocation && currentPosition == null)) {
+          content = _buildSkeletonList();
+        } else if (currentPosition == null) {
+          content = EmptyState(
+            icon: Icons.location_off_rounded,
+            title: 'Turn on location',
+            message:
+                'We need your location to show stalls within $radiusKm km.',
+            actionLabel: 'Enable location',
+            onAction: _loadLocation,
           );
+        } else {
+          final stalls = _filterStalls(snapshot.data!)
+            ..sort((a, b) => _distanceKm(a).compareTo(_distanceKm(b)));
+
+          content = showMap ? _buildMap(stalls) : _buildStallFeed(stalls);
         }
-
-        final stalls =
-        _filterStalls(snapshot.data!);
-
-        final center =
-        currentPosition == null
-            ? const LatLng(
-          22.990000,
-          72.486390,
-        )
-            : LatLng(
-          currentPosition!.latitude,
-          currentPosition!.longitude,
-        );
 
         return Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                16,
-                14,
-                16,
-                10,
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      const VendrgoLogo(
-                        size: 44,
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          'Find nearby food.',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed:
-                        _loadLocation,
-                        icon: const Icon(
-                          Icons.my_location_rounded,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  TextField(
-                    controller:
-                    searchController,
-                    onChanged:
-                        (_) => setState(() {}),
-                    decoration:
-                    InputDecoration(
-                      hintText:
-                      'Search stalls, food...',
-                      prefixIcon:
-                      const Icon(
-                        Icons.search_rounded,
-                      ),
-                      suffixIcon:
-                      searchController
-                          .text
-                          .isEmpty
-                          ? null
-                          : IconButton(
-                        onPressed: () {
-                          searchController
-                              .clear();
-
-                          setState(
-                                () {},
-                          );
-                        },
-                        icon:
-                        const Icon(
-                          Icons
-                              .close_rounded,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  SingleChildScrollView(
-                    scrollDirection:
-                    Axis.horizontal,
-                    child: Row(
-                      children: [
-                        FilterChip(
-                          selected: openOnly,
-                          label: const Text(
-                            'Open only',
-                          ),
-                          onSelected: (value) {
-                            setState(() {
-                              openOnly =
-                                  value;
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        ActionChip(
-                          label: Text(
-                            selectedCategory,
-                          ),
-                          avatar:
-                          const Icon(
-                            Icons
-                                .restaurant_menu_rounded,
-                            size: 18,
-                          ),
-                          onPressed:
-                          _showCategoryFilter,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            Expanded(
-              flex: 6,
-              child: Padding(
-                padding:
-                const EdgeInsets.symmetric(
-                  horizontal: 12,
-                ),
-                child: ClipRRect(
-                  borderRadius:
-                  BorderRadius.circular(
-                    24,
-                  ),
-                  child: Stack(
-                    children: [
-                      FlutterMap(
-                        options: MapOptions(
-                          initialCenter: center,
-                          initialZoom: 14.5,
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName:
-                            'com.example.vendrgo',
-                            maxZoom: 19,
-                          ),
-                          MarkerLayer(
-                            markers: [
-                              if (currentPosition !=
-                                  null)
-                                Marker(
-                                  point: center,
-                                  width: 44,
-                                  height: 44,
-                                  child:
-                                  Container(
-                                    decoration:
-                                    BoxDecoration(
-                                      color:
-                                      VendrgoColors
-                                          .accent,
-                                      shape:
-                                      BoxShape
-                                          .circle,
-                                      border:
-                                      Border.all(
-                                        color:
-                                        Colors.white,
-                                        width:
-                                        3,
-                                      ),
-                                    ),
-                                    child:
-                                    const Icon(
-                                      Icons
-                                          .person_pin_circle_rounded,
-                                      color:
-                                      Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ...stalls
-                                  .where(
-                                    (stall) =>
-                                stall[
-                                'latitude'] !=
-                                    null &&
-                                    stall[
-                                    'longitude'] !=
-                                        null,
-                              )
-                                  .map(
-                                    (stall) =>
-                                    Marker(
-                                      point: LatLng(
-                                        (stall['latitude']
-                                        as num)
-                                            .toDouble(),
-                                        (stall['longitude']
-                                        as num)
-                                            .toDouble(),
-                                      ),
-                                      width: 44,
-                                      height: 52,
-                                      child:
-                                      GestureDetector(
-                                        onTap:
-                                            () =>
-                                            _openStall(
-                                              stall,
-                                            ),
-                                        child:
-                                        Icon(
-                                          Icons
-                                              .location_on_rounded,
-                                          size: 46,
-                                          color:
-                                          stall['is_open'] ==
-                                              true
-                                              ? VendrgoColors
-                                              .success
-                                              : VendrgoColors
-                                              .textSecondary,
-                                        ),
-                                      ),
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        child: Container(
-                          padding:
-                          const EdgeInsets
-                              .symmetric(
-                            horizontal: 7,
-                            vertical: 4,
-                          ),
-                          color: Colors.white
-                              .withValues(
-                            alpha: 0.88,
-                          ),
-                          child: const Text(
-                            '© OpenStreetMap contributors',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color:
-                              VendrgoColors
-                                  .textSecondary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            Expanded(
-              flex: 4,
-              child: _NearbyStallList(
-                stalls: stalls,
-                distanceFor: _distanceLabel,
-                onTap: _openStall,
-              ),
-            ),
+            _buildHeader(),
+            Expanded(child: content),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildSkeletonList() {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      itemCount: 3,
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (_, _) => const StallCardSkeleton(),
+    );
+  }
+
+  Widget _buildStallFeed(List<Map<String, dynamic>> stalls) {
+    final hasFilters =
+        openOnly ||
+        radiusKm != 1 ||
+        selectedCategory != 'All' ||
+        searchController.text.isNotEmpty;
+
+    if (stalls.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadLocation,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: SizedBox(
+                height: constraints.maxHeight,
+                child: EmptyState(
+                  title: 'No stalls found',
+                  message: hasFilters
+                      ? 'Try removing a filter or searching for something else.'
+                      : 'No approved stalls within $radiusKm km of you right now.',
+                  actionLabel: hasFilters ? 'Clear filters' : null,
+                  onAction: hasFilters ? _clearFilters : null,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadLocation,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        itemCount: stalls.length + 1,
+        separatorBuilder: (_, _) => const SizedBox(height: 16),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Text(
+              '${stalls.length} ${stalls.length == 1 ? 'stall' : 'stalls'} nearby',
+              style: VendrgoText.label,
+            );
+          }
+
+          final stall = stalls[index - 1];
+
+          return StallCard(
+            name: stall['name'] as String? ?? 'Stall',
+            imageUrl: _imageUrl(stall),
+            categoryName: categoryNames[stall['category_id']],
+            distanceLabel: _cardDistance(stall),
+            hours: _hoursOf(stall),
+            isOpen: stall['is_open'] == true,
+            heroTag: 'stall-${stall['id']}',
+            onTap: () => _openStall(stall),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMap(List<Map<String, dynamic>> stalls) {
+    final center = currentPosition == null
+        ? const LatLng(22.990000, 72.486390)
+        : LatLng(currentPosition!.latitude, currentPosition!.longitude);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      child: ClipRRect(
+        borderRadius: VendrgoRadius.xlAll,
+        child: Stack(
+          children: [
+            FlutterMap(
+              options: MapOptions(initialCenter: center, initialZoom: 14.5),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.vendrgo',
+                  maxZoom: 19,
+                ),
+                MarkerLayer(
+                  markers: [
+                    if (currentPosition != null)
+                      Marker(
+                        point: center,
+                        width: 44,
+                        height: 44,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: VendrgoColors.accent,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                          ),
+                          child: const Icon(
+                            Icons.person_pin_circle_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ...stalls
+                        .where(
+                          (stall) =>
+                              stall['latitude'] != null &&
+                              stall['longitude'] != null,
+                        )
+                        .map(
+                          (stall) => Marker(
+                            point: LatLng(
+                              (stall['latitude'] as num).toDouble(),
+                              (stall['longitude'] as num).toDouble(),
+                            ),
+                            width: 44,
+                            height: 52,
+                            child: GestureDetector(
+                              onTap: () => _openStall(stall),
+                              child: Icon(
+                                Icons.location_on_rounded,
+                                size: 46,
+                                color: stall['is_open'] == true
+                                    ? VendrgoColors.primary
+                                    : VendrgoColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+              ],
+            ),
+            Positioned(
+              top: 10,
+              left: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: VendrgoRadius.pillAll,
+                  boxShadow: VendrgoShadows.card,
+                ),
+                child: Text(
+                  '${stalls.length} ${stalls.length == 1 ? 'stall' : 'stalls'}',
+                  style: VendrgoText.label,
+                ),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                color: Colors.white.withValues(alpha: 0.88),
+                child: const Text(
+                  '© OpenStreetMap contributors',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: VendrgoColors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -799,136 +799,87 @@ class _CustomerHomeScreenState
     final user = client.auth.currentUser;
 
     if (user == null) {
-      return const Center(
-        child: Text(
-          'Please log in again.',
-        ),
+      return const EmptyState(
+        icon: Icons.lock_outline_rounded,
+        title: 'Please log in again',
       );
     }
 
-    return FutureBuilder<
-        List<Map<String, dynamic>>>(
-      future:
-      _getFavoriteStalls(user.id),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _getFavoriteStalls(user.id),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(),
+        if (snapshot.hasError) {
+          return EmptyState(
+            icon: Icons.wifi_off_rounded,
+            title: 'Could not load favorites',
+            actionLabel: 'Retry',
+            onAction: () => setState(() {}),
           );
         }
 
-        final stalls =
-        snapshot.data!;
+        if (!snapshot.hasData) {
+          return _buildSkeletonList();
+        }
 
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            28,
-          ),
-          children: [
-            const Text(
-              'Your favorites',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w900,
+        final stalls = snapshot.data!;
+
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() {});
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+            children: [
+              const Text('Your favorites', style: VendrgoText.display),
+              const SizedBox(height: 4),
+              const Text(
+                'Stalls you saved for later.',
+                style: VendrgoText.bodySecondary,
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Stalls you saved for later.',
-              style: TextStyle(
-                color: VendrgoColors
-                    .textSecondary,
-              ),
-            ),
-            const SizedBox(height: 22),
-            if (stalls.isEmpty)
-              const SectionCard(
-                color:
-                VendrgoColors.lavender,
-                child: Text(
-                  'You have not saved any stalls yet.',
-                ),
-              )
-            else
-              ...stalls.map(
-                    (stall) =>
-                    Padding(
-                      padding:
-                      const EdgeInsets.only(
-                        bottom: 10,
-                      ),
-                      child: ListTile(
-                        tileColor:
-                        Colors.white,
-                        shape:
-                        RoundedRectangleBorder(
-                          borderRadius:
-                          BorderRadius
-                              .circular(
-                            16,
-                          ),
-                          side:
-                          const BorderSide(
-                            color:
-                            VendrgoColors
-                                .border,
-                          ),
-                        ),
-                        title: Text(
-                          stall['name']
-                          as String? ??
-                              'Stall',
-                          style:
-                          const TextStyle(
-                            fontWeight:
-                            FontWeight.w800,
-                          ),
-                        ),
-                        subtitle: Text(
-                          stall['is_open'] ==
-                              true
-                              ? 'OPEN'
-                              : 'CLOSED',
-                        ),
-                        trailing:
-                        const Icon(
-                          Icons
-                              .arrow_forward_ios_rounded,
-                          size: 16,
-                        ),
-                        onTap: () =>
-                            _openStall(
-                              stall,
-                            ),
-                      ),
+              const SizedBox(height: 20),
+              if (stalls.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 40),
+                  child: EmptyState(
+                    icon: Icons.favorite_border_rounded,
+                    title: 'No favorites yet',
+                    message: 'Tap the heart on a stall to save it here.',
+                  ),
+                )
+              else
+                ...stalls.map(
+                  (stall) => Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: StallCard(
+                      name: stall['name'] as String? ?? 'Stall',
+                      imageUrl: _imageUrl(stall),
+                      categoryName: categoryNames[stall['category_id']],
+                      distanceLabel: _cardDistance(stall),
+                      hours: _hoursOf(stall),
+                      isOpen: stall['is_open'] == true,
+                      isFavorite: true,
+                      heroTag: 'fav-${stall['id']}',
+                      onTap: () => _openStall(stall),
+                      onToggleFavorite: () =>
+                          _toggleFavorite(stall['id'] as String),
                     ),
-              ),
-          ],
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
   }
 
-  Future<
-      List<Map<String, dynamic>>>
-  _getFavoriteStalls(
-      String userId,
-      ) async {
+  Future<List<Map<String, dynamic>>> _getFavoriteStalls(String userId) async {
     final favorites = await client
         .from('favorites')
         .select('stall_id')
         .eq('user_id', userId);
 
-    final ids = favorites
-        .map(
-          (row) =>
-      row['stall_id']
-      as String,
-    )
-        .toList();
+    final ids = favorites.map((row) => row['stall_id'] as String).toList();
 
     if (ids.isEmpty) {
       return [];
@@ -938,125 +889,106 @@ class _CustomerHomeScreenState
         .from('stalls')
         .select()
         .inFilter('id', ids)
-        .eq(
-      'approval_status',
-      'approved',
-    );
+        .eq('approval_status', 'approved');
 
-    return List<
-        Map<String, dynamic>>.from(
-      stalls,
-    );
+    return List<Map<String, dynamic>>.from(stalls);
   }
 
   Widget _buildProfilePage() {
     final user = client.auth.currentUser;
-    final metadata =
-        user?.userMetadata ?? {};
+    final metadata = user?.userMetadata ?? {};
+    final name = metadata['full_name'] as String? ?? 'Customer';
+    final phone = metadata['phone'] as String? ?? 'Not provided';
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        28,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
       children: [
-        const VendrgoLogo(size: 72),
-
-        const SizedBox(height: 20),
-
-        const Text(
-          'Your profile',
-          style: TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-
-        const SizedBox(height: 6),
-
-        Text(
-          metadata['full_name'] as String? ??
-              'Customer',
-          style: const TextStyle(
-            fontSize: 19,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-
-        const SizedBox(height: 5),
-
-        Text(
-          user?.email ?? '',
-          style: const TextStyle(
-            color:
-            VendrgoColors.textSecondary,
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        SectionCard(
-          child: Column(
-            crossAxisAlignment:
-            CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Phone',
-                style: TextStyle(
-                  color:
-                  VendrgoColors
-                      .textSecondary,
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: VendrgoColors.peach,
+              child: Text(
+                name.isEmpty ? '?' : name[0].toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: VendrgoColors.primaryDark,
                 ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                metadata['phone']
-                as String? ??
-                    'Not provided',
-                style:
-                const TextStyle(
-                  fontWeight:
-                  FontWeight.w700,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: VendrgoText.title),
+                  const SizedBox(height: 2),
+                  const Text('Customer', style: VendrgoText.caption),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Container(
+          decoration: BoxDecoration(
+            color: VendrgoColors.surface,
+            borderRadius: VendrgoRadius.lgAll,
+            boxShadow: VendrgoShadows.card,
+          ),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.email_outlined,
+                  color: VendrgoColors.primary,
                 ),
+                title: const Text('Email', style: VendrgoText.caption),
+                subtitle: Text(user?.email ?? '', style: VendrgoText.body),
+              ),
+              const Divider(indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(
+                  Icons.phone_outlined,
+                  color: VendrgoColors.primary,
+                ),
+                title: const Text('Phone', style: VendrgoText.caption),
+                subtitle: Text(phone, style: VendrgoText.body),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 24),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final confirmed = await showConfirmationDialog(
+              context,
+              title: 'Log out?',
+              message: 'You will need to sign in again to see your favorites.',
+              confirmLabel: 'Log out',
+              destructive: true,
+            );
 
-        const SizedBox(height: 20),
-
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () async {
-              await AuthService.instance
-                  .signOut();
-            },
-            icon: const Icon(
-              Icons.logout_rounded,
-            ),
-            label: const Text(
-              'Logout',
-            ),
-          ),
+            if (confirmed) {
+              await AuthService.instance.signOut();
+            }
+          },
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('Logout'),
         ),
       ],
     );
   }
 }
 
-class StallDetailsScreen
-    extends StatelessWidget {
+class StallDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> stall;
   final String? categoryName;
   final double distanceKm;
   final Future<bool> isFavorite;
-  final Future<void> Function()
-  onToggleFavorite;
-  final Future<void> Function()
-  onDirections;
+  final Future<void> Function() onToggleFavorite;
+  final Future<void> Function() onDirections;
 
   const StallDetailsScreen({
     super.key,
@@ -1069,529 +1001,251 @@ class StallDetailsScreen
   });
 
   @override
-  Widget build(
-      BuildContext context,
-      ) {
-    final imagePath =
-    stall['stall_image_path']
-    as String?;
+  State<StallDetailsScreen> createState() => _StallDetailsScreenState();
+}
 
-    final menuPath =
-    stall['menu_image_path']
-    as String?;
+class _StallDetailsScreenState extends State<StallDetailsScreen> {
+  bool? favorite;
+  bool togglingFavorite = false;
 
-    final storage =
-    Supabase.instance.client
-        .storage
-        .from('vendrgo-media');
+  @override
+  void initState() {
+    super.initState();
 
-    final imageUrl =
-    imagePath == null ||
-        imagePath.isEmpty
-        ? null
-        : storage.getPublicUrl(
-      imagePath,
-    );
+    widget.isFavorite
+        .then((value) {
+          if (mounted) {
+            setState(() {
+              favorite = value;
+            });
+          }
+        })
+        .catchError((_) {
+          if (mounted) {
+            setState(() {
+              favorite = false;
+            });
+          }
+        });
+  }
 
-    final menuUrl =
-    menuPath == null ||
-        menuPath.isEmpty
-        ? null
-        : storage.getPublicUrl(
-      menuPath,
-    );
+  Future<void> _toggleFavorite() async {
+    if (favorite == null || togglingFavorite) {
+      return;
+    }
+
+    final previous = favorite!;
+
+    HapticFeedback.selectionClick();
+
+    setState(() {
+      favorite = !previous;
+      togglingFavorite = true;
+    });
+
+    try {
+      await widget.onToggleFavorite();
+
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          previous ? 'Removed from favorites' : 'Saved to favorites',
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        favorite = previous;
+      });
+
+      showAppSnackBar(context, 'Could not update favorites.', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          togglingFavorite = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stall = widget.stall;
+
+    final imagePath = stall['stall_image_path'] as String?;
+    final menuPath = stall['menu_image_path'] as String?;
+
+    final imageUrl = MediaService.urlFor(imagePath);
+
+    final menuUrl = MediaService.urlFor(menuPath);
 
     final openingHours =
-        (stall['opening_hours']
-        as Map<String, dynamic>?)
-        ?['all'] as String? ??
-            'Not specified';
+        (stall['opening_hours'] as Map<String, dynamic>?)?['all'] as String? ??
+        'Not specified';
 
-    final distanceText =
-    distanceKm == double.infinity
+    final distanceText = widget.distanceKm == double.infinity
         ? 'Distance unavailable'
-        : '${distanceKm.toStringAsFixed(1)} km away';
+        : '${widget.distanceKm.toStringAsFixed(1)} km away';
+
+    final isOpen = stall['is_open'] == true;
+    final description = (stall['description'] as String? ?? '').trim();
+
+    final meta = [
+      if (widget.categoryName != null && widget.categoryName!.isNotEmpty)
+        widget.categoryName!,
+      distanceText,
+    ].join(' • ');
 
     return Scaffold(
-      appBar: AppBar(
-        leading: const BackButton(),
-        title: const Text(
-          'Stall details',
-        ),
-        actions: [
-          FutureBuilder<bool>(
-            future: isFavorite,
-            builder: (
-                context,
-                snapshot,
-                ) {
-              final favorite =
-                  snapshot.data == true;
-
-              return IconButton(
-                onPressed:
-                onToggleFavorite,
-                icon: Icon(
-                  favorite
-                      ? Icons
-                      .favorite_rounded
-                      : Icons
-                      .favorite_border_rounded,
-                  color: favorite
-                      ? VendrgoColors
-                      .error
-                      : null,
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            pinned: true,
+            expandedHeight: 260,
+            backgroundColor: VendrgoColors.surface,
+            leading: Padding(
+              padding: const EdgeInsets.all(8),
+              child: CircleAvatar(
+                backgroundColor: Colors.white,
+                child: IconButton(
+                  tooltip: 'Back',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  color: VendrgoColors.text,
                 ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: ListView(
-        padding:
-        const EdgeInsets.fromLTRB(
-          20,
-          8,
-          20,
-          32,
-        ),
-        children: [
-          ClipRRect(
-            borderRadius:
-            BorderRadius.circular(
-              22,
+              ),
             ),
-            child: SizedBox(
-              height: 220,
-              child: imageUrl == null
-                  ? Container(
-                color:
-                VendrgoColors
-                    .peach,
-                child:
-                const Center(
-                  child: Icon(
-                    Icons
-                        .storefront_rounded,
-                    size: 70,
-                  ),
-                ),
-              )
-                  : Image.network(
-                imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder:
-                    (
-                    _,
-                    _,
-                    _,
-                    ) {
-                  return Container(
-                    color:
-                    VendrgoColors
-                        .peach,
-                    child:
-                    const Center(
-                      child: Icon(
-                        Icons
-                            .image_not_supported_outlined,
-                        size: 55,
-                      ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: IconButton(
+                    tooltip: 'Favorite',
+                    onPressed: favorite == null ? null : _toggleFavorite,
+                    icon: Icon(
+                      favorite == true
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: favorite == true
+                          ? VendrgoColors.offer
+                          : VendrgoColors.text,
                     ),
-                  );
-                },
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          Row(
-            crossAxisAlignment:
-            CrossAxisAlignment
-                .start,
-            children: [
-              Expanded(
-                child: Text(
-                  stall['name']
-                  as String? ??
-                      'Stall',
-                  style:
-                  const TextStyle(
-                    fontSize: 30,
-                    fontWeight:
-                    FontWeight
-                        .w900,
-                  ),
-                ),
-              ),
-              Container(
-                padding:
-                const EdgeInsets
-                    .symmetric(
-                  horizontal: 12,
-                  vertical: 7,
-                ),
-                decoration:
-                BoxDecoration(
-                  color:
-                  stall['is_open'] ==
-                      true
-                      ? VendrgoColors
-                      .mint
-                      : VendrgoColors
-                      .peach,
-                  borderRadius:
-                  BorderRadius
-                      .circular(
-                    12,
-                  ),
-                ),
-                child: Text(
-                  stall['is_open'] ==
-                      true
-                      ? 'OPEN'
-                      : 'CLOSED',
-                  style: TextStyle(
-                    fontWeight:
-                    FontWeight.w800,
-                    color:
-                    stall['is_open'] ==
-                        true
-                        ? VendrgoColors
-                        .success
-                        : VendrgoColors
-                        .primaryDark,
                   ),
                 ),
               ),
             ],
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            [
-              if (categoryName !=
-                  null &&
-                  categoryName!
-                      .isNotEmpty)
-                categoryName!,
-              distanceText,
-            ].join(' • '),
-            style:
-            const TextStyle(
-              color:
-              VendrgoColors
-                  .textSecondary,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          SectionCard(
-            child: Column(
-              children: [
-                _DetailRow(
-                  icon: Icons
-                      .location_on_outlined,
-                  label: 'Address',
-                  value:
-                  stall['address']
-                  as String? ??
-                      '',
-                ),
-                const SizedBox(
-                  height: 14,
-                ),
-                _DetailRow(
-                  icon: Icons
-                      .schedule_outlined,
-                  label:
-                  'Opening hours',
-                  value:
-                  openingHours,
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          if ((stall['description']
-          as String? ??
-              '')
-              .trim()
-              .isNotEmpty)
-            SectionCard(
-              color:
-              VendrgoColors
-                  .lavender,
-              child: Text(
-                stall['description']
-                as String,
-                style:
-                const TextStyle(
-                  height: 1.5,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Hero(
+                tag: 'stall-${stall['id']}',
+                child: NetworkImageWithFallback(
+                  url: imageUrl,
+                  height: 260,
+                  width: double.infinity,
                 ),
               ),
             ),
-
-          if (menuUrl != null) ...[
-            const SizedBox(height: 18),
-            const Text(
-              'Menu',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight:
-                FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius:
-              BorderRadius.circular(
-                18,
-              ),
-              child: Image.network(
-                menuUrl,
-                fit: BoxFit.cover,
-                errorBuilder:
-                    (
-                    _,
-                    _,
-                    _,
-                    ) {
-                  return Container(
-                    height: 150,
-                    color:
-                    VendrgoColors
-                        .peach,
-                    alignment:
-                    Alignment
-                        .center,
-                    child: const Text(
-                      'Menu image unavailable',
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        stall['name'] as String? ?? 'Stall',
+                        style: VendrgoText.display,
+                      ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 22),
-
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed:
-              onDirections,
-              icon: const Icon(
-                Icons
-                    .directions_rounded,
-              ),
-              label: const Text(
-                'Get directions',
-              ),
+                    const SizedBox(width: 12),
+                    StatusBadge.openClosed(isOpen: isOpen),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(meta, style: VendrgoText.bodySecondary),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: VendrgoColors.surface,
+                    borderRadius: VendrgoRadius.lgAll,
+                    boxShadow: VendrgoShadows.card,
+                  ),
+                  child: Column(
+                    children: [
+                      _DetailRow(
+                        icon: Icons.location_on_outlined,
+                        label: 'Address',
+                        value: stall['address'] as String? ?? '',
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Divider(),
+                      ),
+                      _DetailRow(
+                        icon: Icons.schedule_outlined,
+                        label: 'Opening hours',
+                        value: openingHours,
+                      ),
+                    ],
+                  ),
+                ),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  const Text('About', style: VendrgoText.heading),
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    style: VendrgoText.body.copyWith(height: 1.5),
+                  ),
+                ],
+                if (menuUrl != null) ...[
+                  const SizedBox(height: 24),
+                  const Text('Menu', style: VendrgoText.heading),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: VendrgoRadius.lgAll,
+                    child: Image.network(
+                      menuUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) {
+                        return Container(
+                          height: 150,
+                          color: VendrgoColors.surfaceMuted,
+                          alignment: Alignment.center,
+                          child: const Text('Menu image unavailable'),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ]),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _NearbyStallList
-    extends StatelessWidget {
-  final List<Map<String, dynamic>>
-  stalls;
-  final String Function(
-      Map<String, dynamic>,
-      ) distanceFor;
-  final void Function(
-      Map<String, dynamic>,
-      ) onTap;
-
-  const _NearbyStallList({
-    required this.stalls,
-    required this.distanceFor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(
-      BuildContext context,
-      ) {
-    if (stalls.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20),
-          child: Text(
-            'No matching stalls within 1 km.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color:
-              VendrgoColors
-                  .textSecondary,
-            ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          decoration: const BoxDecoration(
+            color: VendrgoColors.surface,
+            border: Border(top: BorderSide(color: VendrgoColors.divider)),
+          ),
+          child: ElevatedButton.icon(
+            onPressed: widget.onDirections,
+            icon: const Icon(Icons.directions_rounded),
+            label: const Text('Get directions'),
           ),
         ),
-      );
-    }
-
-    return ListView.separated(
-      padding:
-      const EdgeInsets.fromLTRB(
-        14,
-        10,
-        14,
-        20,
-      ),
-      itemCount: stalls.length,
-      separatorBuilder:
-          (_, _) =>
-      const SizedBox(
-        height: 8,
-      ),
-      itemBuilder: (
-          context,
-          index,
-          ) {
-        final stall =
-        stalls[index];
-
-        return ListTile(
-          tileColor: Colors.white,
-          shape:
-          RoundedRectangleBorder(
-            borderRadius:
-            BorderRadius.circular(
-              16,
-            ),
-            side: const BorderSide(
-              color:
-              VendrgoColors
-                  .border,
-            ),
-          ),
-          leading: Icon(
-            stall['is_open'] == true
-                ? Icons
-                .storefront_rounded
-                : Icons
-                .storefront_outlined,
-            color:
-            stall['is_open'] ==
-                true
-                ? VendrgoColors
-                .success
-                : VendrgoColors
-                .textSecondary,
-          ),
-          title: Text(
-            stall['name']
-            as String? ??
-                'Stall',
-            style:
-            const TextStyle(
-              fontWeight:
-              FontWeight.w800,
-            ),
-          ),
-          subtitle: Text(
-            '${stall['is_open'] == true ? 'Open' : 'Closed'} • '
-                '${distanceFor(stall)}',
-          ),
-          trailing: const Icon(
-            Icons
-                .chevron_right_rounded,
-          ),
-          onTap: () => onTap(stall),
-        );
-      },
-    );
-  }
-}
-
-class _NavItem
-    extends StatelessWidget {
-  final bool selected;
-  final IconData icon;
-  final IconData selectedIcon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.selected,
-    required this.icon,
-    required this.selectedIcon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(
-      BuildContext context,
-      ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize:
-        MainAxisSize.min,
-        children: [
-          Container(
-            padding:
-            const EdgeInsets
-                .symmetric(
-              horizontal: 16,
-              vertical: 7,
-            ),
-            decoration:
-            BoxDecoration(
-              color: selected
-                  ? VendrgoColors
-                  .peach
-                  : Colors
-                  .transparent,
-              borderRadius:
-              BorderRadius.circular(
-                14,
-              ),
-            ),
-            child: Icon(
-              selected
-                  ? selectedIcon
-                  : icon,
-              color: selected
-                  ? VendrgoColors
-                  .primary
-                  : VendrgoColors
-                  .textSecondary,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: selected
-                  ? FontWeight.w800
-                  : FontWeight.w500,
-              color: selected
-                  ? VendrgoColors
-                  .text
-                  : VendrgoColors
-                  .textSecondary,
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
-class _DetailRow
-    extends StatelessWidget {
+class _DetailRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
@@ -1603,48 +1257,21 @@ class _DetailRow
   });
 
   @override
-  Widget build(
-      BuildContext context,
-      ) {
+  Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment:
-      CrossAxisAlignment
-          .start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          icon,
-          size: 21,
-          color:
-          VendrgoColors.primary,
-        ),
+        Icon(icon, size: 21, color: VendrgoColors.primary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
-            crossAxisAlignment:
-            CrossAxisAlignment
-                .start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style:
-                const TextStyle(
-                  fontSize: 12,
-                  color:
-                  VendrgoColors
-                      .textSecondary,
-                ),
-              ),
-              const SizedBox(
-                height: 3,
-              ),
+              Text(label, style: VendrgoText.caption),
+              const SizedBox(height: 3),
               Text(
                 value,
-                style:
-                const TextStyle(
-                  fontWeight:
-                  FontWeight.w600,
-                  height: 1.35,
-                ),
+                style: VendrgoText.body.copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),

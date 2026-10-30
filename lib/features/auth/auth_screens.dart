@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/config/supabase_config.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../services/auth_services.dart';
 import '../../shared/widgets/app_ui.dart';
 
@@ -22,112 +22,103 @@ class AuthLandingScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 36),
-
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: VendrgoColors.peach,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Text(
-                  'LOCAL FOOD • LOCAL VENDORS',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: VendrgoColors.primaryDark,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              const VendrgoLogo(size: 76),
-
-              const SizedBox(height: 28),
-
-              const Text(
-                'Find what’s open\nnear you.',
-                style: TextStyle(
-                  fontSize: 40,
-                  height: 1.02,
-                  fontWeight: FontWeight.w800,
-                  color: VendrgoColors.text,
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              const Text(
-                'Vendrgo connects local food stalls with nearby '
-                'customers in real time.',
-                style: TextStyle(
-                  fontSize: 17,
-                  height: 1.45,
-                  color: VendrgoColors.textSecondary,
-                ),
-              ),
-
-              const SizedBox(height: 34),
-
-              SectionCard(
-                color: VendrgoColors.mint,
-                child: Row(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(11),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.location_on_rounded,
-                        color: VendrgoColors.success,
+                    const VendrgoLogo(size: 64),
+                    const SizedBox(height: 28),
+                    const Text(
+                      'Find what’s open\nnear you.',
+                      style: TextStyle(
+                        fontSize: 40,
+                        height: 1.08,
+                        fontWeight: FontWeight.w800,
+                        color: VendrgoColors.text,
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Text(
-                        'Discover nearby stalls that are currently open.',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
-                        ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Vendrgo connects local food stalls with nearby '
+                      'customers in real time.',
+                      style: TextStyle(
+                        fontSize: 16,
+                        height: 1.45,
+                        color: VendrgoColors.textSecondary,
                       ),
+                    ),
+                    const SizedBox(height: 28),
+                    const _FeatureRow(
+                      icon: Icons.location_on_rounded,
+                      text: 'Discover stalls within 1 km of you',
+                    ),
+                    const SizedBox(height: 12),
+                    const _FeatureRow(
+                      icon: Icons.schedule_rounded,
+                      text: 'See live open and closed status',
+                    ),
+                    const SizedBox(height: 12),
+                    const _FeatureRow(
+                      icon: Icons.favorite_rounded,
+                      text: 'Save your favorite stalls',
                     ),
                   ],
                 ),
               ),
-
-              const SizedBox(height: 28),
-
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: onLogin,
-                  child: const Text('Login'),
-                ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+              decoration: const BoxDecoration(
+                color: VendrgoColors.surface,
+                boxShadow: VendrgoShadows.card,
               ),
-
-              const SizedBox(height: 12),
-
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: onSignup,
-                  child: const Text('Create an account'),
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: onLogin,
+                    child: const Text('Login'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: onSignup,
+                    child: const Text('Create an account'),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _FeatureRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _FeatureRow({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: VendrgoColors.peach,
+            borderRadius: VendrgoRadius.mdAll,
+          ),
+          child: Icon(icon, size: 20, color: VendrgoColors.primaryDark),
+        ),
+        const SizedBox(width: 14),
+        Expanded(child: Text(text, style: VendrgoText.body)),
+      ],
     );
   }
 }
@@ -210,19 +201,13 @@ class _LoginScreenState extends State<LoginScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
             children: [
-              const Text(
-                'Welcome back.',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-              ),
+              const Text('Welcome back.', style: VendrgoText.display),
 
               const SizedBox(height: 8),
 
               const Text(
                 'Sign in to continue to Vendrgo.',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: VendrgoColors.textSecondary,
-                ),
+                style: VendrgoText.bodySecondary,
               ),
 
               const SizedBox(height: 28),
@@ -346,54 +331,28 @@ class SignupRoleScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: VendrgoColors.peach,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Text(
-                  'CREATE ACCOUNT',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: VendrgoColors.primaryDark,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
-              const VendrgoLogo(size: 76),
-              const SizedBox(height: 28),
               const Text(
                 'How will you\nuse Vendrgo?',
                 style: TextStyle(
-                  fontSize: 40,
-                  height: 1.02,
+                  fontSize: 34,
+                  height: 1.1,
                   fontWeight: FontWeight.w800,
                   color: VendrgoColors.text,
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               const Text(
                 'Choose the role that best fits you. '
-                    'Your account role cannot be changed later.',
-                style: TextStyle(
-                  fontSize: 17,
-                  height: 1.45,
-                  color: VendrgoColors.textSecondary,
-                ),
+                'Your account role cannot be changed later.',
+                style: VendrgoText.bodySecondary,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               _RoleCard(
                 icon: Icons.person_rounded,
                 color: VendrgoColors.mint,
                 title: 'I’m a customer',
                 description:
-                'Discover nearby food stalls and see what is open.',
+                    'Discover nearby food stalls and see what is open.',
                 onTap: onCustomer,
               ),
               const SizedBox(height: 16),
@@ -402,7 +361,7 @@ class SignupRoleScreen extends StatelessWidget {
                 color: VendrgoColors.peach,
                 title: 'I’m a vendor',
                 description:
-                'Register your stall and let nearby customers know when you are open.',
+                    'Register your stall and let nearby customers know when you are open.',
                 onTap: onVendor,
               ),
             ],
@@ -660,35 +619,35 @@ class _VendorSignupScreenState extends State<VendorSignupScreen> {
     super.dispose();
   }
 
-Future<void> _selectOpeningHours() async {
-  final openingTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select opening time',
-  );
+  Future<void> _selectOpeningHours() async {
+    final openingTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: 'Select opening time',
+    );
 
-  if (openingTime == null || !mounted) {
-    return;
+    if (openingTime == null || !mounted) {
+      return;
+    }
+
+    final closingTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: (openingTime.hour + 8) % 24,
+        minute: openingTime.minute,
+      ),
+      helpText: 'Select closing time',
+    );
+
+    if (closingTime == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      openingHoursController.text =
+          '${openingTime.format(context)} – ${closingTime.format(context)}';
+    });
   }
-
-  final closingTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay(
-      hour: (openingTime.hour + 8) % 24,
-      minute: openingTime.minute,
-    ),
-    helpText: 'Select closing time',
-  );
-
-  if (closingTime == null || !mounted) {
-    return;
-  }
-
-  setState(() {
-    openingHoursController.text =
-        '${openingTime.format(context)} – ${closingTime.format(context)}';
-  });
-}
 
   Future<void> submit() async {
     if (!formKey.currentState!.validate()) {
@@ -911,17 +870,17 @@ Future<void> _selectOpeningHours() async {
         const SizedBox(height: 14),
 
         TextFormField(
-  controller: openingHoursController,
-  readOnly: true,
-  onTap: _selectOpeningHours,
-  validator: _required('Opening hours'),
-  decoration: const InputDecoration(
-    labelText: 'Opening hours',
-    hintText: 'Select opening and closing time',
-    prefixIcon: Icon(Icons.schedule_outlined),
-    suffixIcon: Icon(Icons.keyboard_arrow_down_rounded),
-  ),
-),
+          controller: openingHoursController,
+          readOnly: true,
+          onTap: _selectOpeningHours,
+          validator: _required('Opening hours'),
+          decoration: const InputDecoration(
+            labelText: 'Opening hours',
+            hintText: 'Select opening and closing time',
+            prefixIcon: Icon(Icons.schedule_outlined),
+            suffixIcon: Icon(Icons.keyboard_arrow_down_rounded),
+          ),
+        ),
       ],
     );
   }
@@ -1476,23 +1435,11 @@ class _SignupFormScaffold extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 36),
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+              Text(title, style: VendrgoText.display),
 
               const SizedBox(height: 8),
 
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  color: VendrgoColors.textSecondary,
-                  height: 1.4,
-                ),
-              ),
+              Text(subtitle, style: VendrgoText.bodySecondary),
 
               const SizedBox(height: 24),
 
@@ -1546,52 +1493,49 @@ class _RoleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(17),
-              ),
-              child: Icon(icon, color: VendrgoColors.text),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                    ),
+    return Container(
+      decoration: BoxDecoration(
+        color: VendrgoColors.surface,
+        borderRadius: VendrgoRadius.lgAll,
+        boxShadow: VendrgoShadows.card,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: VendrgoRadius.lgAll,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: VendrgoRadius.mdAll,
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      height: 1.35,
-                      color: VendrgoColors.textSecondary,
-                    ),
+                  child: Icon(icon, color: VendrgoColors.text),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: VendrgoText.heading),
+                      const SizedBox(height: 4),
+                      Text(description, style: VendrgoText.bodySecondary),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: VendrgoColors.textTertiary,
+                ),
+              ],
             ),
-            const Icon(Icons.arrow_forward_rounded),
-          ],
+          ),
         ),
       ),
     );
@@ -1607,10 +1551,7 @@ class _FormSectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-      ),
+      child: Text(title, style: VendrgoText.heading),
     );
   }
 }
@@ -1626,9 +1567,9 @@ class _ErrorBox extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF1EF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFD5CF)),
+        color: VendrgoColors.errorSoft,
+        borderRadius: VendrgoRadius.mdAll,
+        border: Border.all(color: VendrgoColors.error.withValues(alpha: 0.25)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
